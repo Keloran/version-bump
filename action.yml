@@ -1,4 +1,3 @@
-# action.yml - This goes in the root of your keloran/version-bump repository
 name: 'Multi-Language Version Bump'
 description: 'Automatically update version numbers in package.json, Cargo.toml, pyproject.toml, and build.gradle files'
 author: 'keloran'
@@ -216,7 +215,7 @@ runs:
         fi
 
     - name: Commit changes
-              if: inputs.commit == 'true' && steps.update.outputs.files-count > 0
+      if: inputs.commit == 'true' && steps.update.outputs.files-count > 0
       shell: bash
       run: |
         git config --local user.email "action@github.com"
@@ -235,6 +234,19 @@ runs:
           echo "✅ Changes committed with message: $COMMIT_MSG"
         else
           echo "ℹ️ No changes to commit"
+        fi
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## 📦 Version Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ steps.extract_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Files Updated:** ${{ steps.update.outputs.files-count }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Updated Files:** ${{ steps.update.outputs.updated-files }}" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ inputs.commit }}" = "true" ]; then
+          echo "**Git Status:** Changes committed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**Git Status:** Local changes only (not committed)" >> $GITHUB_STEP_SUMMARY
         fi
 
 branding:
