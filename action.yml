@@ -1,0 +1,242 @@
+# action.yml - This goes in the root of your keloran/version-bump repository
+name: 'Multi-Language Version Bump'
+description: 'Automatically update version numbers in package.json, Cargo.toml, pyproject.toml, and build.gradle files'
+author: 'keloran'
+
+inputs:
+  version:
+    description: 'Version number to set (without v prefix). If not provided, will extract from git tag'
+    required: false
+  commit:
+    description: 'Whether to commit the changes automatically'
+    required: false
+    default: 'false'
+  commit-message:
+    description: 'Custom commit message template'
+    required: false
+    default: 'chore: bump version to {version}'
+  search-subdirectories:
+    description: 'Whether to search subdirectories for version files'
+    required: false
+    default: 'true'
+
+outputs:
+  updated-files:
+    description: 'List of files that were updated'
+    value: ${{ steps.update.outputs.updated-files }}
+  files-count:
+    description: 'Number of files updated'
+    value: ${{ steps.update.outputs.files-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Extract version
+      id: extract_version
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          # Use provided version
+          VERSION="${{ inputs.version }}"
+          echo "📦 Using provided version: $VERSION"
+        else
+          # Extract from git reference
+          if [[ "$GITHUB_REF" =~ ^refs/tags/ ]]; then
+            # Extract from tag
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "🏷️ Extracted version from tag: $VERSION"
+          elif [[ "$GITHUB_REF" =~ ^refs/heads/ ]]; then
+            # Fallback: try to get latest tag
+            if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+              VERSION=$(git describe --tags --abbrev=0)
+              echo "🔍 Using latest tag: $VERSION"
+            else
+              echo "❌ No version provided and no tags found"
+              exit 1
+            fi
+          else
+            echo "❌ Unable to determine version from ref: $GITHUB_REF"
+            exit 1
+          fi
+        fi
+        
+        # Remove 'v' prefix if present (handles both v1.0.0 and 1.0.0)
+        VERSION=${VERSION#v}
+        
+        # Validate version format (basic semver check)
+        if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+)*(-[a-zA-Z0-9]+)*(\+[a-zA-Z0-9]+)*$ ]]; then
+          echo "❌ Invalid version format: $VERSION"
+          echo "Expected format: X.Y.Z, X.Y, or X (with optional pre-release/build suffixes)"
+          exit 1
+        fi
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "✅ Final version: $VERSION"
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Update version files
+      id: update
+      shell: bash
+      run: |
+        VERSION="${{ steps.extract_version.outputs.version }}"
+        SEARCH_SUBDIRS="${{ inputs.search-subdirectories }}"
+        UPDATED_FILES=()
+        
+        echo "🔍 Updating version to: $VERSION"
+        
+        # Function to update JSON files (package.json, etc.)
+        update_json_version() {
+          local file=$1
+          if [ -f "$file" ]; then
+            echo "📦 Updating $file"
+            if jq --arg version "$VERSION" '.version = $version' "$file" > tmp.$$ && mv tmp.$$ "$file"; then
+              UPDATED_FILES+=("$file")
+              echo "✅ Updated $file"
+              return 0
+            else
+              echo "❌ Failed to update $file"
+              return 1
+            fi
+          fi
+          return 1
+        }
+        
+        # Function to update TOML files (Cargo.toml, pyproject.toml)
+        update_toml_version() {
+          local file=$1
+          local section=${2:-""}
+          if [ -f "$file" ]; then
+            echo "🦀 Updating $file"
+            if [ -n "$section" ]; then
+              # Update version in specific section
+              sed -i "/^\[$section\]/,/^\[.*\]/{s/^version = \".*\"/version = \"$VERSION\"/}" "$file"
+            else
+              # Update first occurrence of version
+              sed -i "0,/^version = \".*\"/{s/^version = \".*\"/version = \"$VERSION\"/}" "$file"
+            fi
+            UPDATED_FILES+=("$file")
+            echo "✅ Updated $file"
+            return 0
+          fi
+          return 1
+        }
+        
+        # Function to update Python setup.py
+        update_setup_py() {
+          local file=$1
+          if [ -f "$file" ]; then
+            echo "🐍 Updating $file"
+            sed -i "s/version=['\"][^'\"]*['\"]/version='$VERSION'/" "$file"
+            UPDATED_FILES+=("$file")
+            echo "✅ Updated $file"
+            return 0
+          fi
+          return 1
+        }
+        
+        # Function to update Gradle files
+        update_gradle_version() {
+          local file=$1
+          if [ -f "$file" ]; then
+            echo "☕ Updating $file"
+            # Try different version declaration patterns
+            sed -i "s/version = \".*\"/version = \"$VERSION\"/" "$file"
+            sed -i "s/version=\".*\"/version=\"$VERSION\"/" "$file"
+            sed -i "s/version = ['\"][^'\"]*['\"]/version = '$VERSION'/" "$file"
+            sed -i "s/version '[^']*'/version '$VERSION'/" "$file"
+            sed -i "s/version \"[^\"]*\"/version \"$VERSION\"/" "$file"
+            UPDATED_FILES+=("$file")
+            echo "✅ Updated $file"
+            return 0
+          fi
+          return 1
+        }
+        
+        echo "🔍 Scanning for version files..."
+        
+        # Update files in root directory
+        update_json_version "package.json" || true
+        update_toml_version "Cargo.toml" "package" || true
+        update_setup_py "setup.py" || true
+        update_toml_version "pyproject.toml" "tool.poetry" || update_toml_version "pyproject.toml" "project" || true
+        update_gradle_version "build.gradle" || true
+        update_gradle_version "build.gradle.kts" || true
+        
+        # Search subdirectories if enabled
+        if [ "$SEARCH_SUBDIRS" = "true" ]; then
+          echo "🔍 Searching subdirectories..."
+          
+          # Find additional package.json files
+          while IFS= read -r -d '' file; do
+            update_json_version "$file" || true
+          done < <(find . -name "package.json" -not -path "./node_modules/*" -not -path "./.git/*" -print0)
+          
+          # Find additional Cargo.toml files
+          while IFS= read -r -d '' file; do
+            update_toml_version "$file" "package" || true
+          done < <(find . -name "Cargo.toml" -not -path "./.git/*" -print0)
+          
+          # Find additional pyproject.toml files
+          while IFS= read -r -d '' file; do
+            update_toml_version "$file" "tool.poetry" || update_toml_version "$file" "project" || true
+          done < <(find . -name "pyproject.toml" -not -path "./.git/*" -print0)
+          
+          # Find additional setup.py files
+          while IFS= read -r -d '' file; do
+            update_setup_py "$file" || true
+          done < <(find . -name "setup.py" -not -path "./.git/*" -print0)
+          
+          # Find additional Gradle files
+          while IFS= read -r -d '' file; do
+            update_gradle_version "$file" || true
+          done < <(find . \( -name "build.gradle" -o -name "build.gradle.kts" \) -not -path "./.git/*" -print0)
+        fi
+        
+        # Output results
+        FILES_COUNT=${#UPDATED_FILES[@]}
+        if [ $FILES_COUNT -gt 0 ]; then
+          echo "✅ Successfully updated $FILES_COUNT file(s):"
+          printf '  - %s\n' "${UPDATED_FILES[@]}"
+          
+          # Convert array to string for output
+          UPDATED_FILES_STR=$(printf '%s,' "${UPDATED_FILES[@]}")
+          UPDATED_FILES_STR=${UPDATED_FILES_STR%,}
+          
+          echo "updated-files=$UPDATED_FILES_STR" >> $GITHUB_OUTPUT
+          echo "files-count=$FILES_COUNT" >> $GITHUB_OUTPUT
+        else
+          echo "❌ No version files found to update"
+          echo "updated-files=" >> $GITHUB_OUTPUT
+          echo "files-count=0" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Commit changes
+              if: inputs.commit == 'true' && steps.update.outputs.files-count > 0
+      shell: bash
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Add updated files
+        git add ${{ steps.update.outputs.updated-files }}
+        
+        # Check if there are changes to commit
+        if ! git diff --staged --quiet; then
+          # Replace {version} placeholder in commit message
+          COMMIT_MSG="${{ inputs.commit-message }}"
+          COMMIT_MSG=${COMMIT_MSG//\{version\}/${{ steps.extract_version.outputs.version }}}
+          
+          git commit -m "$COMMIT_MSG"
+          echo "✅ Changes committed with message: $COMMIT_MSG"
+        else
+          echo "ℹ️ No changes to commit"
+        fi
+
+branding:
+  icon: 'tag'
+  color: 'blue'
