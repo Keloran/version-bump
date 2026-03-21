@@ -111,7 +111,10 @@ runs:
           if [ -f "$file" ]; then
             echo "🦀 Updating $file"
             if [ -n "$section" ]; then
-              # Update version in specific section
+              # Update version in specific section (only if section exists)
+              if ! grep -q "^\[$section\]" "$file"; then
+                return 1
+              fi
               sed -i "/^\[$section\]/,/^\[.*\]/{s/^version = \".*\"/version = \"$VERSION\"/}" "$file"
             else
               # Update first occurrence of version
