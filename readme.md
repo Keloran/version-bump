@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 1
 
       # Replace reedyuk/npm-version with keloran/version-bump
-      - uses: keloran/version-bump@main
+      - uses: keloran/version-bump@v1
         # No inputs needed - auto-extracts tag and doesn't commit by default
 
       - uses: actions/setup-node@v4
@@ -75,7 +75,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: keloran/version-bump@main
+      - uses: keloran/version-bump@v1
         # Updates Cargo.toml version
 
       - uses: actions-rs/toolchain@v1
@@ -110,7 +110,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: keloran/version-bump@main
+      - uses: keloran/version-bump@v1
         # Updates setup.py or pyproject.toml version
 
       - uses: actions/setup-python@v4
@@ -150,7 +150,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: keloran/version-bump@main
+      - uses: keloran/version-bump@v1
         # Updates build.gradle or build.gradle.kts version
 
       - uses: actions/setup-java@v3
