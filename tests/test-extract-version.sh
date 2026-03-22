@@ -29,13 +29,13 @@ assert_contains() {
 }
 
 run_script() {
-  env "$@" bash "${SCRIPT}" 2>&1
+  env -u GITHUB_OUTPUT "$@" bash "${SCRIPT}" 2>&1
 }
 
 run_script_expect_failure() {
   set +e
   local output
-  output="$(env "$@" bash "${SCRIPT}" 2>&1)"
+  output="$(env -u GITHUB_OUTPUT "$@" bash "${SCRIPT}" 2>&1)"
   local status=$?
   set -e
   if [[ ${status} -eq 0 ]]; then

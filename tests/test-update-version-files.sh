@@ -31,7 +31,7 @@ assert_file_contains() {
 run_update() {
   local temp_dir=$1
   shift
-  (cd "${temp_dir}" && env "$@" bash "${SCRIPT}")
+  (cd "${temp_dir}" && env -u GITHUB_OUTPUT "$@" bash "${SCRIPT}")
 }
 
 test_updates_root_and_subdirectory_once() {
