@@ -1,6 +1,15 @@
 # Version Bumper
 
-This bumps the version in python, rust, npm/pnpm, and kotlin projects so that you don't need to create new commits just to bump the number before doing a tag release
+This bumps the version in Python, Rust, npm/Bun, and Gradle projects so that you don't need to create new commits just to bump the number before doing a tag release.
+
+The action logic lives in testable shell scripts under `scripts/`, and local regression tests live under `tests/`.
+
+## Local Verification
+
+```bash
+sudo apt-get update && sudo apt-get install -y jq
+bash tests/run.sh
+```
 
 ## Examples
 
@@ -24,7 +33,7 @@ jobs:
           fetch-depth: 1
 
       # Replace reedyuk/npm-version with keloran/version-bump
-      - uses: keloran/version-bump@v1
+      - uses: keloran/version-bump@main
         # No inputs needed - auto-extracts tag and doesn't commit by default
 
       - uses: actions/setup-node@v4
@@ -32,14 +41,14 @@ jobs:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
 
-      - uses: pnpm/action-setup@v3
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 9
+          bun-version: 1.3.11
 
-      - run: pnpm install --frozen-lockfile
+      - run: bun install
 
       - name: Rollup
-        run: pnpm run build
+        run: bun run build
 
       - name: NPM
         run: npm publish --no-git-checks
@@ -66,7 +75,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: keloran/version-bump@v1
+      - uses: keloran/version-bump@main
         # Updates Cargo.toml version
 
       - uses: actions-rs/toolchain@v1
@@ -101,7 +110,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: keloran/version-bump@v1
+      - uses: keloran/version-bump@main
         # Updates setup.py or pyproject.toml version
 
       - uses: actions/setup-python@v4
@@ -141,7 +150,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: keloran/version-bump@v1
+      - uses: keloran/version-bump@main
         # Updates build.gradle or build.gradle.kts version
 
       - uses: actions/setup-java@v3
