@@ -1,5 +1,5 @@
 name: 'Multi-Language Version Bump'
-description: 'Automatically update version numbers in package.json, Cargo.toml, pyproject.toml, and build.gradle files'
+description: 'Automatically update package versions and Android versionName in package.json, Cargo.toml, pyproject.toml, and Gradle files'
 author: 'keloran'
 
 inputs:
