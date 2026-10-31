@@ -98,8 +98,151 @@ EOF
   rm -rf "${temp_dir}"
 }
 
+test_updates_android_release() {
+  local temp_dir output version count_line files_line
+  temp_dir="$(mktemp -d)"
+  mkdir -p "${temp_dir}/app"
+  cat > "${temp_dir}/build.gradle.kts" <<'EOF'
+plugins {
+    id("com.android.application") version "8.7.0" apply false
+}
+EOF
+  cat > "${temp_dir}/app/build.gradle.kts" <<'EOF'
+android {
+    defaultConfig {
+        versionCode = 42
+        versionName = "0.1.0" // release version
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = "secret"
+            keyAlias = "release"
+            keyPassword = "secret"
+        }
+    }
+}
+EOF
+  cat > "${temp_dir}/expected" <<'EOF'
+android {
+    defaultConfig {
+        versionCode = 42
+        versionName = "2.3.4-rc.1+build.5" // release version
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = "secret"
+            keyAlias = "release"
+            keyPassword = "secret"
+        }
+    }
+}
+EOF
+  cp "${temp_dir}/build.gradle.kts" "${temp_dir}/expected-root"
+  version="$(env -u GITHUB_OUTPUT INPUT_VERSION= GITHUB_RELEASE_TAG=v2.3.4-rc.1+build.5 bash "${ROOT_DIR}/scripts/extract-version.sh" | sed -n 's/^version=//p')"
+  output="$(run_update "${temp_dir}" VERSION="${version}" SEARCH_SUBDIRS=true)"
+  count_line="$(printf '%s\n' "${output}" | sed -n 's/^files-count=//p')"
+  files_line="$(printf '%s\n' "${output}" | sed -n 's/^updated-files=//p')"
+  assert_eq "${count_line}" "1" "only the Android module should be counted"
+  assert_eq "${files_line}" "./app/build.gradle.kts" "root plugin configuration should not be reported as updated"
+  diff -u "${temp_dir}/expected" "${temp_dir}/app/build.gradle.kts"
+  diff -u "${temp_dir}/expected-root" "${temp_dir}/build.gradle.kts"
+  rm -rf "${temp_dir}"
+}
+
+test_gradle_literal_syntax_and_unrelated_values() {
+  local temp_dir output
+  temp_dir="$(mktemp -d)"
+  cat > "${temp_dir}/build.gradle" <<'EOF'
+version = "0.1.0"
+version='0.1.0'
+version '0.1.0'
+version "0.1.0"
+    versionName "0.1.0"
+    versionName '0.1.0'
+    versionName = "0.1.0"; // keep comment
+	versionName='0.1.0'
+// versionName = "comment"
+// version = "comment"
+def version = "local variable"
+versionName = project.version.toString()
+versionName = "${major}.${minor}"
+versionName = "prefix" + suffix
+versionNameSuffix = "-debug"
+versionCode 42
+ext.version = "unrelated property"
+dependencyVersion = "1.0.0"
+EOF
+  cat > "${temp_dir}/expected" <<'EOF'
+version = "1.2.3"
+version='1.2.3'
+version '1.2.3'
+version "1.2.3"
+    versionName "1.2.3"
+    versionName '1.2.3'
+    versionName = "1.2.3"; // keep comment
+	versionName='1.2.3'
+// versionName = "comment"
+// version = "comment"
+def version = "local variable"
+versionName = project.version.toString()
+versionName = "${major}.${minor}"
+versionName = "prefix" + suffix
+versionNameSuffix = "-debug"
+versionCode 42
+ext.version = "unrelated property"
+dependencyVersion = "1.0.0"
+EOF
+  output="$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false)"
+  assert_file_contains "${temp_dir}/build.gradle" 'versionName "1.2.3"' "Groovy Android version should update"
+  diff -u "${temp_dir}/expected" "${temp_dir}/build.gradle"
+  assert_eq "$(printf '%s\n' "${output}" | sed -n 's/^files-count=//p')" "1" "multiple declarations should count as one file"
+
+  output="$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false)"
+  assert_eq "$(printf '%s\n' "${output}" | sed -n 's/^files-count=//p')" "0" "repeated bumps should report no changes"
+  diff -u "${temp_dir}/expected" "${temp_dir}/build.gradle"
+  rm -rf "${temp_dir}"
+}
+
+test_gradle_without_literal_version_fails() {
+  local temp_dir output
+  temp_dir="$(mktemp -d)"
+  cat > "${temp_dir}/build.gradle.kts" <<'EOF'
+plugins {
+    id("com.android.application") version "8.7.0"
+}
+versionName = project.version.toString()
+EOF
+  cp "${temp_dir}/build.gradle.kts" "${temp_dir}/expected"
+  if output="$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false 2>&1)"; then
+    echo "Expected failure for Gradle files without a supported version declaration" >&2
+    exit 1
+  fi
+  assert_eq "$(printf '%s\n' "${output}" | sed -n 's/^files-count=//p')" "0" "unmatched Gradle files should not count as updated"
+  diff -u "${temp_dir}/expected" "${temp_dir}/build.gradle.kts"
+  rm -rf "${temp_dir}"
+}
+
+test_android_search_subdirs_false() {
+  local temp_dir output
+  temp_dir="$(mktemp -d)"
+  mkdir -p "${temp_dir}/app"
+  printf 'version = "0.1.0"\n' > "${temp_dir}/build.gradle.kts"
+  printf 'versionName = "0.1.0"\n' > "${temp_dir}/app/build.gradle.kts"
+  output="$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false)"
+  assert_eq "$(printf '%s\n' "${output}" | sed -n 's/^files-count=//p')" "1" "only the root Gradle file should update"
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'version = "1.2.3"' "root Gradle version should update"
+  assert_file_contains "${temp_dir}/app/build.gradle.kts" 'versionName = "0.1.0"' "nested Android version should stay unchanged"
+  rm -rf "${temp_dir}"
+}
+
 test_updates_root_and_subdirectory_once
 test_search_subdirs_false_skips_nested_files
 test_updates_project_pyproject_section
+test_updates_android_release
+test_gradle_literal_syntax_and_unrelated_values
+test_gradle_without_literal_version_fails
+test_android_search_subdirs_false
 
 echo "update-version-files tests passed"

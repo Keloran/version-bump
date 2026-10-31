@@ -9,6 +9,7 @@ fi
 SEARCH_SUBDIRS="${SEARCH_SUBDIRS:-true}"
 UPDATED_FILES=()
 declare -A SEEN_FILES=()
+GRADLE_VERSION_FOUND=false
 
 emit_output() {
   local key=$1
@@ -80,13 +81,26 @@ update_setup_py() {
 
 update_gradle_version() {
   local file=$1
+  local pattern tmp_file
   if [[ -f "${file}" ]]; then
-    echo "Updating ${file}"
-    sed -i "s/version = \".*\"/version = \"${VERSION}\"/" "${file}"
-    sed -i "s/version=\".*\"/version=\"${VERSION}\"/" "${file}"
-    sed -i "s/version = ['\"][^'\"]*['\"]/version = '${VERSION}'/" "${file}"
-    sed -i "s/version '[^']*'/version '${VERSION}'/" "${file}"
-    sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "${file}"
+    # Match standalone literal declarations, preserving quotes and trailing comments.
+    # Requiring the end of the declaration avoids replacing part of an expression.
+    pattern="^([[:blank:]]*(version|versionName)([[:blank:]]*=[[:blank:]]*|[[:blank:]]+))([\"'])[^\"'\$]*\\4([[:blank:]]*;?[[:blank:]]*(//.*)?)$"
+    if ! grep -Eq "${pattern}" "${file}"; then
+      return 1
+    fi
+    GRADLE_VERSION_FOUND=true
+    tmp_file="$(mktemp)"
+    if ! sed -E "s~${pattern}~\\1\\4${VERSION}\\4\\5~" "${file}" > "${tmp_file}"; then
+      rm -f "${tmp_file}"
+      return 1
+    fi
+    if cmp -s "${file}" "${tmp_file}"; then
+      rm -f "${tmp_file}"
+      return 0
+    fi
+    cat "${tmp_file}" > "${file}"
+    rm -f "${tmp_file}"
     record_updated "${file}"
     echo "Updated ${file}"
     return 0
@@ -138,6 +152,10 @@ if [[ ${files_count} -gt 0 ]]; then
 else
   emit_output "updated-files" ""
   emit_output "files-count" "0"
-  echo "No version files found to update" >&2
-  exit 1
+  if [[ "${GRADLE_VERSION_FOUND}" == "true" ]]; then
+    echo "Gradle versions already match ${VERSION}"
+  else
+    echo "No version files found to update" >&2
+    exit 1
+  fi
 fi

@@ -2,6 +2,25 @@
 
 This bumps the version in Python, Rust, npm/Bun, and Gradle projects so that you don't need to create new commits just to bump the number before doing a tag release.
 
+Android apps are supported through `versionName` in `build.gradle` and `build.gradle.kts`, including module files such as `app/build.gradle.kts`. Subdirectories are searched by default. On a GitHub `release: published` event, the action uses the release tag and removes its leading `v`.
+
+Supported Gradle declarations include:
+
+```groovy
+version = '1.2.3'
+version '1.2.3'
+versionName '1.2.3'
+```
+
+```kotlin
+version = "1.2.3"
+versionName = "1.2.3"
+```
+
+Single and double quotes are preserved, along with spacing and trailing `//` comments. Declarations must be on their own line. Computed values such as `versionName = project.version.toString()` are left unchanged; a standalone literal `version` declaration can supply the version in that setup. The action leaves `versionCode`, signing configuration, and plugin versions unchanged. Manage Android's integer `versionCode` separately.
+
+Gradle files are included in `updated-files` and `files-count` only when their contents change. If the declared version already matches the release, the action succeeds with zero changes. For Gradle-only projects, it fails if no supported literal version declaration is found.
+
 The action logic lives in testable shell scripts under `scripts/`, and local regression tests live under `tests/`.
 
 ## Local Verification
@@ -12,6 +31,35 @@ bash tests/run.sh
 ```
 
 ## Examples
+
+For an Android app, run the action before building the release artifact:
+
+```yaml
+name: Build Android Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: keloran/version-bump@v1
+        # A release tagged v1.2.3 sets versionName to "1.2.3".
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build release
+        run: ./gradlew assembleRelease
+```
+
+Use the Java version required by your project's Android Gradle plugin and keep your existing release signing setup. By default, the bump applies to the checked-out files used by subsequent build steps. `commit: 'true'` creates a local commit; pushing that commit back to a branch requires a separate workflow step.
 
 ```
 name: Deploy NPM
