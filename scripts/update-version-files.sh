@@ -85,13 +85,13 @@ update_gradle_version() {
   if [[ -f "${file}" ]]; then
     # Match standalone literal declarations, preserving quotes and trailing comments.
     # Requiring the end of the declaration avoids replacing part of an expression.
-    pattern="^([[:blank:]]*(version|versionName)([[:blank:]]*=[[:blank:]]*|[[:blank:]]+))([\"'])[^\"'\$]*\\4([[:blank:]]*;?[[:blank:]]*(//.*)?)$"
+    pattern="^([[:blank:]]*(project\.)?(version|versionName)([[:blank:]]*=[[:blank:]]*|[[:blank:]]+))([\"'])[^\"'\$]*\\5([[:blank:]]*;?[[:blank:]]*(//.*)?)$"
     if ! grep -Eq "${pattern}" "${file}"; then
       return 1
     fi
     GRADLE_VERSION_FOUND=true
     tmp_file="$(mktemp)"
-    if ! sed -E "s~${pattern}~\\1\\4${VERSION}\\4\\5~" "${file}" > "${tmp_file}"; then
+    if ! sed -E "s~${pattern}~\\1\\5${VERSION}\\5\\6~" "${file}" > "${tmp_file}"; then
       rm -f "${tmp_file}"
       return 1
     fi

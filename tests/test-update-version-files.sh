@@ -237,6 +237,29 @@ test_android_search_subdirs_false() {
   rm -rf "${temp_dir}"
 }
 
+test_gradle_kts_stays_valid_kotlin() {
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  cat > "${temp_dir}/build.gradle.kts" <<'EOF'
+plugins {
+    id("org.example.plugin") version "9.9.9"
+}
+project.version = "0.1.0"
+android {
+    defaultConfig {
+        versionName = project.version.toString()
+    }
+}
+EOF
+
+  run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false >/dev/null
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'project.version = "1.2.3"' "project.version should update, with double quotes, as single aren't valid Kotlin"
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'id("org.example.plugin") version "9.9.9"' "a plugin's version should not change"
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'versionName = project.version.toString()' "a computed versionName should not change"
+
+  rm -rf "${temp_dir}"
+}
+
 test_updates_root_and_subdirectory_once
 test_search_subdirs_false_skips_nested_files
 test_updates_project_pyproject_section
@@ -244,5 +267,6 @@ test_updates_android_release
 test_gradle_literal_syntax_and_unrelated_values
 test_gradle_without_literal_version_fails
 test_android_search_subdirs_false
+test_gradle_kts_stays_valid_kotlin
 
 echo "update-version-files tests passed"
