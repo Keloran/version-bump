@@ -98,8 +98,71 @@ EOF
   rm -rf "${temp_dir}"
 }
 
+test_gradle_kts_stays_valid_kotlin() {
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  cat > "${temp_dir}/build.gradle.kts" <<'EOF'
+plugins {
+    id("org.example.plugin") version "9.9.9"
+}
+version = "0.1.0"
+android {
+    defaultConfig {
+        versionName = project.version.toString()
+    }
+}
+EOF
+
+  run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false >/dev/null
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'version = "1.2.3"' "double quotes should stay, as single aren't valid Kotlin"
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'id("org.example.plugin") version "9.9.9"' "a plugin's version should not change"
+  assert_file_contains "${temp_dir}/build.gradle.kts" 'versionName = project.version.toString()' "versionName should not change"
+
+  rm -rf "${temp_dir}"
+}
+
+test_gradle_groovy_keeps_its_quotes() {
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  cat > "${temp_dir}/build.gradle" <<'EOF'
+plugins {
+    id 'org.example.plugin' version '9.9.9'
+}
+version '0.1.0'
+EOF
+
+  run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false >/dev/null
+  assert_file_contains "${temp_dir}/build.gradle" "version '1.2.3'" "single quotes should stay in Groovy"
+  assert_file_contains "${temp_dir}/build.gradle" "id 'org.example.plugin' version '9.9.9'" "a plugin's version should not change"
+
+  rm -rf "${temp_dir}"
+}
+
+test_gradle_with_no_version_line_is_not_reported() {
+  local temp_dir output
+  temp_dir=$(mktemp -d)
+  cat > "${temp_dir}/build.gradle.kts" <<'EOF'
+android {
+    defaultConfig {
+        versionName = "0.1.0"
+    }
+}
+EOF
+
+  output=$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false 2>&1 || true)
+  if grep -Fq "Updated build.gradle.kts" <<<"${output}"; then
+    echo "Assertion failed: a file with no version line was reported as updated" >&2
+    exit 1
+  fi
+
+  rm -rf "${temp_dir}"
+}
+
 test_updates_root_and_subdirectory_once
 test_search_subdirs_false_skips_nested_files
 test_updates_project_pyproject_section
+test_gradle_kts_stays_valid_kotlin
+test_gradle_groovy_keeps_its_quotes
+test_gradle_with_no_version_line_is_not_reported
 
 echo "update-version-files tests passed"

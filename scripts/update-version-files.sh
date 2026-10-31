@@ -82,11 +82,16 @@ update_gradle_version() {
   local file=$1
   if [[ -f "${file}" ]]; then
     echo "Updating ${file}"
-    sed -i "s/version = \".*\"/version = \"${VERSION}\"/" "${file}"
-    sed -i "s/version=\".*\"/version=\"${VERSION}\"/" "${file}"
-    sed -i "s/version = ['\"][^'\"]*['\"]/version = '${VERSION}'/" "${file}"
-    sed -i "s/version '[^']*'/version '${VERSION}'/" "${file}"
-    sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "${file}"
+    local before
+    before=$(cat "${file}")
+    # Only the project's own version line, keeping its quotes: single quotes aren't valid in .kts, and a plugin's
+    # `id("x") version "1.2"` or Android's versionName isn't this.
+    sed -E -i "s/^([[:space:]]*(project\.)?version[[:space:]]*=[[:space:]]*)([\"'])[^\"']*[\"']/\1\3${VERSION}\3/" "${file}"
+    sed -E -i "s/^([[:space:]]*(project\.)?version[[:space:]]+)([\"'])[^\"']*[\"']/\1\3${VERSION}\3/" "${file}"
+    if [[ "$(cat "${file}")" == "${before}" ]]; then
+      echo "No version line in ${file}"
+      return 1
+    fi
     record_updated "${file}"
     echo "Updated ${file}"
     return 0
