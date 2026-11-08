@@ -260,6 +260,68 @@ EOF
   rm -rf "${temp_dir}"
 }
 
+test_swift_version_constant() {
+  local temp_dir output count_line
+  temp_dir="$(mktemp -d)"
+
+  echo '// swift-tools-version: 5.9' > "${temp_dir}/Package.swift"
+  mkdir -p "${temp_dir}/Sources/Lib" "${temp_dir}/Sources/Other"
+  cat > "${temp_dir}/Sources/Lib/Lib.swift" <<'EOF'
+public struct Lib {
+    public static let version = "0.1.0" // the library version
+    static let minimumServerVersion = "2.0.0"
+    let version = "instance"
+}
+EOF
+  cat > "${temp_dir}/Sources/Other/Other.swift" <<'EOF'
+enum Other {
+    static let version: String = "0.0.1"
+    static let computed = Lib.version
+}
+enum Computed {
+    static let version = "\(major).0.0"
+}
+EOF
+
+  output="$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false)"
+  count_line="$(printf '%s\n' "${output}" | awk -F= '/^files-count=/{print $2}' | tail -n1)"
+
+  assert_eq "${count_line}" "2" "both Swift files with a literal version constant should update"
+  assert_file_contains "${temp_dir}/Sources/Lib/Lib.swift" 'public static let version = "1.2.3" // the library version' "access level and comment should be kept"
+  assert_file_contains "${temp_dir}/Sources/Lib/Lib.swift" 'static let minimumServerVersion = "2.0.0"' "other constants should not change"
+  assert_file_contains "${temp_dir}/Sources/Lib/Lib.swift" 'let version = "instance"' "instance properties should not change"
+  assert_file_contains "${temp_dir}/Sources/Other/Other.swift" 'static let version: String = "1.2.3"' "a type annotation should be kept"
+  assert_file_contains "${temp_dir}/Sources/Other/Other.swift" 'static let version = "\(major).0.0"' "an interpolated version should not change"
+
+  output="$(run_update "${temp_dir}" VERSION=1.2.3 SEARCH_SUBDIRS=false)"
+  count_line="$(printf '%s\n' "${output}" | awk -F= '/^files-count=/{print $2}' | tail -n1)"
+  assert_eq "${count_line}" "0" "a matching Swift version should succeed with no changes"
+
+  rm -rf "${temp_dir}"
+}
+
+test_swift_nested_package_and_missing_constant() {
+  local temp_dir output files_line
+  temp_dir="$(mktemp -d)"
+
+  mkdir -p "${temp_dir}/swift/Sources/Lib"
+  echo '// swift-tools-version: 5.9' > "${temp_dir}/swift/Package.swift"
+  echo 'public enum Lib { public static let version = "0.1.0" }' > "${temp_dir}/swift/Sources/Lib/Lib.swift"
+  echo '    public static let version = "0.1.0"' > "${temp_dir}/swift/Sources/Lib/Single.swift"
+
+  output="$(run_update "${temp_dir}" VERSION=3.0.0 SEARCH_SUBDIRS=true)"
+  files_line="$(printf '%s\n' "${output}" | awk -F= '/^updated-files=/{print $2}' | tail -n1)"
+  assert_eq "${files_line}" "./swift/Sources/Lib/Single.swift" "a nested package should be found; declarations sharing a line are skipped"
+
+  rm "${temp_dir}/swift/Sources/Lib/Single.swift"
+  if run_update "${temp_dir}" VERSION=3.0.0 SEARCH_SUBDIRS=true >/dev/null 2>&1; then
+    echo "Assertion failed: a Swift package without a version constant should fail" >&2
+    exit 1
+  fi
+
+  rm -rf "${temp_dir}"
+}
+
 test_updates_root_and_subdirectory_once
 test_search_subdirs_false_skips_nested_files
 test_updates_project_pyproject_section
@@ -268,5 +330,7 @@ test_gradle_literal_syntax_and_unrelated_values
 test_gradle_without_literal_version_fails
 test_android_search_subdirs_false
 test_gradle_kts_stays_valid_kotlin
+test_swift_version_constant
+test_swift_nested_package_and_missing_constant
 
 echo "update-version-files tests passed"

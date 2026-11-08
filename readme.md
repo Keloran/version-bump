@@ -1,6 +1,6 @@
 # Version Bumper
 
-This bumps the version in Python, Rust, npm/Bun, and Gradle projects so that you don't need to create new commits just to bump the number before doing a tag release.
+This bumps the version in Python, Rust, npm/Bun, Gradle, and Swift projects so that you don't need to create new commits just to bump the number before doing a tag release.
 
 Android apps are supported through `versionName` in `build.gradle` and `build.gradle.kts`, including module files such as `app/build.gradle.kts`. Subdirectories are searched by default. On a GitHub `release: published` event, the action uses the release tag and removes its leading `v`.
 
@@ -20,6 +20,15 @@ versionName = "1.2.3"
 Single and double quotes are preserved, along with spacing and trailing `//` comments. Declarations must be on their own line. Computed values such as `versionName = project.version.toString()` are left unchanged; a standalone literal `version` declaration can supply the version in that setup. The action leaves `versionCode`, signing configuration, and plugin versions unchanged. Manage Android's integer `versionCode` separately.
 
 Gradle files are included in `updated-files` and `files-count` only when their contents change. If the declared version already matches the release, the action succeeds with zero changes. For Gradle-only projects, it fails if no supported literal version declaration is found.
+
+Swift packages (a `Package.swift` with a `Sources` directory) take their version from the git tag, so the action updates a version constant in `Sources`:
+
+```swift
+public static let version = "1.2.3"
+static let version: String = "1.2.3"
+```
+
+As with Gradle, declarations must be on their own line, computed or interpolated values are left unchanged, a matching version succeeds with zero changes, and a package without such a constant fails. Because SwiftPM releases are tags, run the action and push its commit before tagging; bumping on `release: published` would leave the tagged code one version behind.
 
 The action logic lives in testable shell scripts under `scripts/`, and local regression tests live under `tests/`.
 

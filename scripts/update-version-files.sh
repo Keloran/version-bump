@@ -9,7 +9,7 @@ fi
 SEARCH_SUBDIRS="${SEARCH_SUBDIRS:-true}"
 UPDATED_FILES=()
 declare -A SEEN_FILES=()
-GRADLE_VERSION_FOUND=false
+LITERAL_VERSION_FOUND=false
 
 emit_output() {
   local key=$1
@@ -89,7 +89,7 @@ update_gradle_version() {
     if ! grep -Eq "${pattern}" "${file}"; then
       return 1
     fi
-    GRADLE_VERSION_FOUND=true
+    LITERAL_VERSION_FOUND=true
     tmp_file="$(mktemp)"
     if ! sed -E "s~${pattern}~\\1\\5${VERSION}\\5\\6~" "${file}" > "${tmp_file}"; then
       rm -f "${tmp_file}"
@@ -108,6 +108,38 @@ update_gradle_version() {
   return 1
 }
 
+update_swift_package() {
+  local dir=$1
+  local pattern file tmp_file
+  if [[ ! -f "${dir}/Package.swift" || ! -d "${dir}/Sources" ]]; then
+    return 1
+  fi
+  # SwiftPM takes its version from the git tag, so the only version in the source is a constant such as
+  # `public static let version = "1.2.3"`. Match standalone string literals only, keeping access level,
+  # type annotation and trailing `//` comments; computed values are left unchanged.
+  pattern='^([[:blank:]]*((public|internal|package|open|fileprivate|private)[[:blank:]]+)?static[[:blank:]]+let[[:blank:]]+version([[:blank:]]*:[[:blank:]]*String)?[[:blank:]]*=[[:blank:]]*)"[^"\\]*"([[:blank:]]*(//.*)?)$'
+  while IFS= read -r -d '' file; do
+    if ! grep -Eq "${pattern}" "${file}"; then
+      continue
+    fi
+    LITERAL_VERSION_FOUND=true
+    tmp_file="$(mktemp)"
+    if ! sed -E "s~${pattern}~\\1\"${VERSION}\"\\5~" "${file}" > "${tmp_file}"; then
+      rm -f "${tmp_file}"
+      continue
+    fi
+    if cmp -s "${file}" "${tmp_file}"; then
+      rm -f "${tmp_file}"
+      continue
+    fi
+    cat "${tmp_file}" > "${file}"
+    rm -f "${tmp_file}"
+    record_updated "${file}"
+    echo "Updated ${file}"
+  done < <(find "${dir}/Sources" -name "*.swift" -not -path "*/.build/*" -print0)
+  return 0
+}
+
 echo "Updating version to: ${VERSION}"
 
 update_json_version "package.json" || true
@@ -116,6 +148,7 @@ update_setup_py "setup.py" || true
 update_toml_version "pyproject.toml" "tool.poetry" || update_toml_version "pyproject.toml" "project" || true
 update_gradle_version "build.gradle" || true
 update_gradle_version "build.gradle.kts" || true
+update_swift_package "." || true
 
 if [[ "${SEARCH_SUBDIRS}" == "true" ]]; then
   echo "Searching subdirectories"
@@ -139,6 +172,10 @@ if [[ "${SEARCH_SUBDIRS}" == "true" ]]; then
   while IFS= read -r -d '' file; do
     update_gradle_version "${file}" || true
   done < <(find . -mindepth 2 \( -name "build.gradle" -o -name "build.gradle.kts" \) -not -path "./.git/*" -print0)
+
+  while IFS= read -r -d '' file; do
+    update_swift_package "$(dirname "${file}")" || true
+  done < <(find . -mindepth 2 -name "Package.swift" -not -path "./.git/*" -not -path "*/.build/*" -print0)
 fi
 
 files_count=${#UPDATED_FILES[@]}
@@ -152,8 +189,8 @@ if [[ ${files_count} -gt 0 ]]; then
 else
   emit_output "updated-files" ""
   emit_output "files-count" "0"
-  if [[ "${GRADLE_VERSION_FOUND}" == "true" ]]; then
-    echo "Gradle versions already match ${VERSION}"
+  if [[ "${LITERAL_VERSION_FOUND}" == "true" ]]; then
+    echo "Gradle/Swift versions already match ${VERSION}"
   else
     echo "No version files found to update" >&2
     exit 1
